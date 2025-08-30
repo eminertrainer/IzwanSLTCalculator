@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MQA SLT Calculator</title>
-  <!-- Tailwind via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     input[type=number]::-webkit-outer-spin-button,
@@ -18,10 +17,9 @@
   <div class="max-w-6xl mx-auto p-6 space-y-6">
     <header class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">MQA SLT Calculator</h1>
-      <div class="text-sm text-slate-500">v0.2 – editable results</div>
+      <div class="text-sm text-slate-500">v0.5 – fix: totals update on edit; robust event handling; add UI test</div>
     </header>
 
-    <!-- Controls -->
     <section class="grid md:grid-cols-4 gap-4 items-end">
       <label class="block">
         <span class="block text-sm font-medium">Target Total Hours</span>
@@ -47,13 +45,13 @@
       </div>
     </section>
 
-    <!-- Assessments table -->
     <section class="bg-white rounded-2xl shadow p-4">
       <div class="flex items-center justify-between mb-3">
         <h2 class="font-semibold">Assessments (input)</h2>
         <div class="space-x-2">
-          <button id="addRow" class="rounded-xl bg-slate-900 text-white px-3 py-1.5 text-sm">Add Row</button>
-          <button id="loadExample" class="rounded-xl bg-slate-200 px-3 py-1.5 text-sm">Load Example</button>
+          <!-- Inline onclick + global app: avoids timing issues in some previews -->
+          <button id="addRow" onclick="app.addRow()" class="rounded-xl bg-slate-900 text-white px-3 py-1.5 text-sm">Add Row</button>
+          <button id="loadExample" onclick="app.loadExample()" class="rounded-xl bg-slate-200 px-3 py-1.5 text-sm">Load Example</button>
         </div>
       </div>
       <div class="overflow-x-auto">
@@ -73,13 +71,13 @@
     </section>
 
     <section class="flex gap-3">
-      <button id="calculate" class="rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2">Calculate</button>
-      <button id="normalize" class="rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2">Normalize to Target</button>
-      <button id="exportCsv" class="rounded-2xl bg-slate-800 hover:bg-slate-900 text-white px-4 py-2">Export CSV</button>
+      <button id="calculate" onclick="app.calculate()" class="rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2">Calculate</button>
+      <button id="normalize" onclick="app.normalizeToTarget()" class="rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2">Normalize to Target</button>
+      <button id="exportCsv" onclick="app.exportCsv()" class="rounded-2xl bg-slate-800 hover:bg-slate-900 text-white px-4 py-2">Export CSV</button>
+      <button id="runTests" onclick="app.runSelfTests()" class="rounded-2xl bg-amber-500 hover:bg-amber-600 text-white px-4 py-2">Run Self‑Tests</button>
       <div id="sumMarks" class="ml-auto text-sm text-slate-600"></div>
     </section>
 
-    <!-- Results -->
     <section id="results" class="hidden bg-white rounded-2xl shadow p-4">
       <h2 class="font-semibold mb-3">Results (click cells to edit when enabled)</h2>
       <div class="overflow-x-auto">
@@ -120,97 +118,34 @@
         <li>Penyelesaian Masalah: 0.725 h per 1% (30% prep, 70% execution)</li>
         <li>Pembentangan: 0.10 h per 1% (75% prep, 25% execution)</li>
         <li>Produk: 0.725 h per 1% (30% prep, 70% execution)</li>
-        <li>Ujian/Peperiksaan: 0.3375 h per 1% with per‑percent mapping:
-          <ul class="list-disc ml-5">
-            <li>Implementation (exam sitting) = <code>0.0625 h</code> per 1%</li>
-            <li>Preparation (revision) = <code>0.275 h</code> per 1%</li>
-          </ul>
-        </li>
+        <li>Ujian/Peperiksaan: 0.3375 h per 1% with per‑percent mapping: impl 0.0625 h/%; prep 0.275 h/%</li>
       </ul>
     </section>
   </div>
 
+  <!-- Define the app AFTER the markup so onclick can always find it -->
   <script>
-    (function(){
-      const TYPES = [
-        "Penulisan",
-        "Penyelesaian Masalah",
-        "Pembentangan",
-        "Produk",
-        "Ujian / Peperiksaan",
-      ];
-      const MODES = [
-        "NF2F Asynchronous",
-        "F2F Physical",
-        "F2F Online Sync",
-      ];
-
+    // Expose a global app object so inline onclick works in all environments
+    window.app = (function(){
+      const TYPES = ["Penulisan","Penyelesaian Masalah","Pembentangan","Produk","Ujian / Peperiksaan"]; 
+      const MODES = ["NF2F Asynchronous","F2F Physical","F2F Online Sync"]; 
       const RULES = {
-        "Penulisan": { hpp: 0.6, prep: 0.70, exec: 0.30, execToF2F: false },
-        "Penyelesaian Masalah": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
-        "Pembentangan": { hpp: 0.10, prep: 0.75, exec: 0.25, execToF2F: true },
-        "Produk": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
+        "Penulisan": { hpp: 0.6,   prep: 0.70,  exec: 0.30,  execToF2F: false },
+        "Penyelesaian Masalah": { hpp: 0.725, prep: 0.30,  exec: 0.70,  execToF2F: true },
+        "Pembentangan": { hpp: 0.10,  prep: 0.75,  exec: 0.25,  execToF2F: true },
+        "Produk": { hpp: 0.725, prep: 0.30,  exec: 0.70,  execToF2F: true },
         "Ujian / Peperiksaan": { hpp: 0.3375, prep: 0.815, exec: 0.185, execToF2F: true, implPerPercent: 0.0625, prepPerPercent: 0.275 }
       };
 
-      let tbody, addRowBtn, loadExampleBtn, calculateBtn, normalizeBtn, exportCsvBtn,
-          targetHoursEl, roundingEl, lockExamEl, editableEl, sumMarksEl;
+      function el(id){ return document.getElementById(id); }
+      function roundTo(x, step){ return Math.round((x/step)) * step; }
+      function escapeHtml(str){ return (str||'').replace(/[&<>\"]/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
 
-      let currentResults = [];
-
-      function init(){
-        tbody = document.getElementById('tbody');
-        addRowBtn = document.getElementById('addRow');
-        loadExampleBtn = document.getElementById('loadExample');
-        calculateBtn = document.getElementById('calculate');
-        normalizeBtn = document.getElementById('normalize');
-        exportCsvBtn = document.getElementById('exportCsv');
-        targetHoursEl = document.getElementById('targetHours');
-        roundingEl = document.getElementById('rounding');
-        lockExamEl = document.getElementById('lockExam');
-        editableEl = document.getElementById('toggleEditable');
-        sumMarksEl = document.getElementById('sumMarks');
-
-        if(!tbody){ console.error('tbody not found'); return; }
-
-        // Button handlers with null checks to avoid early errors
-        addRowBtn && addRowBtn.addEventListener('click', () => addRow());
-        loadExampleBtn && loadExampleBtn.addEventListener('click', loadExample);
-        calculateBtn && calculateBtn.addEventListener('click', calculate);
-        normalizeBtn && normalizeBtn.addEventListener('click', normalizeToTarget);
-        exportCsvBtn && exportCsvBtn.addEventListener('click', exportCsv);
-        editableEl && editableEl.addEventListener('change', () => renderResults());
-
-        // Event delegation for Remove buttons (no inline onclick)
-        tbody.addEventListener('click', (e)=>{
-          const btn = e.target.closest('[data-action="remove-row"]');
-          if(btn){ btn.closest('tr')?.remove(); updateMarkSum(); }
-        });
-
-        // Start with one blank row
-        addRow();
-      }
-
-      function addRow(values = {}){
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="p-2"><input class="w-full border rounded-lg p-1" placeholder="e.g., Assignment 1" value="${values.name||''}"></td>
-          <td class="p-2"><input class="w-28 border rounded-lg p-1 text-right" type="number" step="0.01" min="0" max="100" value="${values.mark??''}"></td>
-          <td class="p-2">${typeSelect(values.type)}</td>
-          <td class="p-2">${modeSelect(values.mode)}</td>
-          <td class="p-2 text-right"><button type="button" data-action="remove-row" class="text-red-600 hover:underline">Remove</button></td>`;
-        tbody.appendChild(tr);
-        updateMarkSum();
-      }
-
-      function typeSelect(val){
-        return `<select class="w-56 border rounded-lg p-1">${TYPES.map(t=>`<option ${val===t? 'selected':''}>${t}</option>`).join('')}</select>`;
-      }
-      function modeSelect(val){
-        return `<select class="w-48 border rounded-lg p-1">${MODES.map(m=>`<option ${val===m? 'selected':''}>${m}</option>`).join('')}</select>`;
-      }
+      function typeSelect(val){ return `<select class="w-56 border rounded-lg p-1">${TYPES.map(t=>`<option ${val===t? 'selected':''}>${t}</option>`).join('')}</select>`; }
+      function modeSelect(val){ return `<select class="w-48 border rounded-lg p-1">${MODES.map(m=>`<option ${val===m? 'selected':''}>${m}</option>`).join('')}</select>`; }
 
       function getRows(){
+        const tbody = el('tbody');
         const rows = [];
         [...tbody.querySelectorAll('tr')].forEach(tr => {
           const [nameEl, markEl, typeEl, modeEl] = tr.querySelectorAll('input, select');
@@ -219,23 +154,43 @@
         return rows;
       }
 
-      function roundTo(x, step){ return Math.round((x/step)) * step; }
-
       function updateMarkSum(){
-        const total = getRows().reduce((s,r)=>s+(r.mark||0),0);
-        sumMarksEl.textContent = `Total marks: ${total.toFixed(2)}%`;
-        sumMarksEl.className = `ml-auto text-sm ${Math.abs(total-100)<1e-6? 'text-emerald-600':'text-rose-600'}`;
+        const sum = getRows().reduce((s,r)=>s+(r.mark||0),0);
+        const elSum = el('sumMarks');
+        elSum.textContent = `Total marks: ${sum.toFixed(2)}%`;
+        elSum.className = `ml-auto text-sm ${Math.abs(sum-100)<1e-6? 'text-emerald-600':'text-rose-600'}`;
+      }
+
+      function addRow(values={}){
+        const tbody = el('tbody');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="p-2"><input class="w-full border rounded-lg p-1" placeholder="e.g., Assignment 1" value="${values.name||''}"></td>
+          <td class="p-2"><input class="w-28 border rounded-lg p-1 text-right" type="number" step="0.01" min="0" max="100" value="${values.mark??''}"></td>
+          <td class="p-2">${typeSelect(values.type)}</td>
+          <td class="p-2">${modeSelect(values.mode)}</td>
+          <td class="p-2 text-right"><button type="button" class="text-red-600 hover:underline" onclick="this.closest('tr').remove(); app.updateMarkSum();">Remove</button></td>`;
+        tbody.appendChild(tr);
+        updateMarkSum();
+      }
+
+      function loadExample(){
+        const tbody = el('tbody');
+        tbody.innerHTML='';
+        addRow({ name:'Assessment 1', mark:20, type:'Penulisan', mode:'NF2F Asynchronous' });
+        addRow({ name:'Assessment 2', mark:15, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
+        addRow({ name:'Assessment 3', mark:25, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
+        addRow({ name:'Final Assessment', mark:40, type:'Ujian / Peperiksaan', mode:'F2F Physical' });
       }
 
       function computeFromRules(){
-        const rows = getRows();
-        const step = parseFloat(roundingEl.value||'0.25');
-        return rows.map(r => {
+        const step = parseFloat(el('rounding').value||'0.25');
+        return getRows().map(r => {
           const rule = RULES[r.type];
           let f2fPhys=0, f2fOnline=0, nf2fImpl=0, nf2fPrep=0;
           if (r.type === 'Ujian / Peperiksaan'){
-            const impl = (rule.implPerPercent||rule.hpp*rule.exec) * r.mark;
-            const prep = (rule.prepPerPercent||rule.hpp*rule.prep) * r.mark;
+            const impl = (rule.implPerPercent||rule.hpp*rule.exec) * r.mark; // 0.0625h/%
+            const prep = (rule.prepPerPercent||rule.hpp*rule.prep) * r.mark;  // 0.275h/%
             if (r.mode === 'F2F Online Sync') f2fOnline = impl; else f2fPhys = impl;
             nf2fPrep = prep;
           } else {
@@ -246,130 +201,130 @@
             nf2fPrep = prep;
           }
           const totalH = f2fPhys+f2fOnline+nf2fImpl+nf2fPrep;
-          return { ...r, f2fPhys: roundTo(f2fPhys, step), f2fOnline: roundTo(f2fOnline, step), nf2fImpl: roundTo(nf2fImpl, step), nf2fPrep: roundTo(nf2fPrep, step), totalH: roundTo(totalH, step) };
+          function rt(x){ return roundTo(x, step); }
+          return { ...r, f2fPhys: rt(f2fPhys), f2fOnline: rt(f2fOnline), nf2fImpl: rt(nf2fImpl), nf2fPrep: rt(nf2fPrep), totalH: rt(totalH) };
         });
       }
 
+      let currentResults = [];
       function calculate(){
-        const target = parseFloat(targetHoursEl.value||'0')||0;
-        const lockExam = !!(lockExamEl?.checked);
-        const step = parseFloat(roundingEl.value||'0.25');
+        const target = parseFloat(el('targetHours').value||'0')||0;
+        const lockExam = !!(el('lockExam')?.checked);
+        const step = parseFloat(el('rounding').value||'0.25');
         let results = computeFromRules();
-
         const sumRaw = results.reduce((s,r)=>s+r.totalH,0);
         const sumExam = results.filter(r=>r.type==='Ujian / Peperiksaan').reduce((s,r)=>s+r.totalH,0);
         let scale = 1;
-        if (target>0){
-          if (lockExam){ const sumNon = sumRaw - sumExam; scale = sumNon>0 ? (target - sumExam)/sumNon : 1; }
-          else { scale = sumRaw>0 ? target/sumRaw : 1; }
-        }
-        results = results.map(r => {
-          const fac = (lockExam && r.type==='Ujian / Peperiksaan') ? 1 : scale;
-          const row = { ...r,
-            f2fPhys: roundTo(r.f2fPhys*fac, step), f2fOnline: roundTo(r.f2fOnline*fac, step), nf2fImpl: roundTo(r.nf2fImpl*fac, step), nf2fPrep: roundTo(r.nf2fPrep*fac, step) };
-          row.totalH = roundTo(row.f2fPhys + row.f2fOnline + row.nf2fImpl + row.nf2fPrep, step);
-          return row;
-        });
-        currentResults = results;
+        if (target>0){ if (lockExam){ const sumNon = sumRaw - sumExam; scale = sumNon>0 ? (target - sumExam)/sumNon : 1; } else { scale = sumRaw>0 ? target/sumRaw : 1; } }
+        const rt = x=>roundTo(x, step);
+        currentResults = results.map(r => { const fac=(lockExam && r.type==='Ujian / Peperiksaan')?1:scale; const row={...r, f2fPhys:rt(r.f2fPhys*fac), f2fOnline:rt(r.f2fOnline*fac), nf2fImpl:rt(r.nf2fImpl*fac), nf2fPrep:rt(r.nf2fPrep*fac)}; row.totalH=rt(row.f2fPhys+row.f2fOnline+row.nf2fImpl+row.nf2fPrep); return row; });
         renderResults();
       }
 
       function normalizeToTarget(){
-        if (!currentResults.length) return;
-        const target = parseFloat(targetHoursEl.value||'0')||0;
-        const lockExam = !!(lockExamEl?.checked);
-        const step = parseFloat(roundingEl.value||'0.25');
-        const sumTotal = currentResults.reduce((s,r)=>s+r.totalH,0);
+        if (!currentResults.length) return; 
+        const target = parseFloat(el('targetHours').value||'0')||0; 
+        const lockExam = !!(el('lockExam')?.checked); 
+        const step = parseFloat(el('rounding').value||'0.25');
+        const sumTotal = currentResults.reduce((s,r)=>s+r.totalH,0); 
         const sumExam = currentResults.filter(r=>r.type==='Ujian / Peperiksaan').reduce((s,r)=>s+r.totalH,0);
-        let scale = 1;
-        if (target>0){
-          if (lockExam){ const sumNon = sumTotal - sumExam; scale = sumNon>0 ? (target - sumExam)/sumNon : 1; }
-          else { scale = sumTotal>0 ? target/sumTotal : 1; }
-        }
-        currentResults = currentResults.map(r => {
-          const fac = (lockExam && r.type==='Ujian / Peperiksaan') ? 1 : scale;
-          const row = { ...r,
-            f2fPhys: roundTo(r.f2fPhys*fac, step), f2fOnline: roundTo(r.f2fOnline*fac, step), nf2fImpl: roundTo(r.nf2fImpl*fac, step), nf2fPrep: roundTo(r.nf2fPrep*fac, step) };
-          row.totalH = roundTo(row.f2fPhys + row.f2fOnline + row.nf2fImpl + row.nf2fPrep, step);
-          return row;
-        });
+        let scale = 1; if (target>0){ if (lockExam){ const sumNon=sumTotal-sumExam; scale = sumNon>0 ? (target - sumExam)/sumNon : 1; } else { scale = sumTotal>0 ? target/sumTotal : 1; } }
+        const rt = x=>roundTo(x, step);
+        currentResults = currentResults.map(r=>{ const fac=(lockExam && r.type==='Ujian / Peperiksaan')?1:scale; const row={...r, f2fPhys:rt(r.f2fPhys*fac), f2fOnline:rt(r.f2fOnline*fac), nf2fImpl:rt(r.nf2fImpl*fac), nf2fPrep:rt(r.nf2fPrep*fac)}; row.totalH=rt(row.f2fPhys+row.f2fOnline+row.nf2fImpl+row.nf2fPrep); return row; });
         renderResults();
       }
 
       function renderResults(){
-        const resSec = document.getElementById('results');
-        const body = document.getElementById('resultBody');
-        const editable = !!(editableEl?.checked);
-        const step = parseFloat(roundingEl.value||'0.25');
-
-        body.innerHTML = '';
-        currentResults.forEach((r, idx) => {
-          const tr = document.createElement('tr');
-          tr.dataset.index = idx;
-          tr.innerHTML = `
-            <td class="p-2">${escapeHtml(r.name)}</td>
-            <td class="p-2 text-right mono">${(r.mark||0).toFixed(2)}</td>
-            <td class="p-2">${r.type}</td>
-            <td class="p-2">${r.mode}</td>
-            <td class="p-2 text-right mono editable" data-field="f2fPhys" contenteditable="${editable}">${r.f2fPhys.toFixed(2)}</td>
-            <td class="p-2 text-right mono editable" data-field="f2fOnline" contenteditable="${editable}">${r.f2fOnline.toFixed(2)}</td>
-            <td class="p-2 text-right mono editable" data-field="nf2fImpl" contenteditable="${editable}">${r.nf2fImpl.toFixed(2)}</td>
-            <td class="p-2 text-right mono editable" data-field="nf2fPrep" contenteditable="${editable}">${r.nf2fPrep.toFixed(2)}</td>
-            <td class="p-2 text-right mono" data-field="totalH">${r.totalH.toFixed(2)}</td>`;
-          body.appendChild(tr);
+        const resSec = el('results'); const body = el('resultBody'); const editable = !!(el('toggleEditable')?.checked);
+        body.innerHTML='';
+        currentResults.forEach((r, idx)=>{
+          const tr=document.createElement('tr'); tr.dataset.index=idx; tr.innerHTML = `
+            <td class=\"p-2\">${escapeHtml(r.name)}</td>
+            <td class=\"p-2 text-right mono\">${(r.mark||0).toFixed(2)}</td>
+            <td class=\"p-2\">${r.type}</td>
+            <td class=\"p-2\">${r.mode}</td>
+            <td class=\"p-2 text-right mono editable\" data-field=\"f2fPhys\" contenteditable=\"${editable}\">${r.f2fPhys.toFixed(2)}</td>
+            <td class=\"p-2 text-right mono editable\" data-field=\"f2fOnline\" contenteditable=\"${editable}\">${r.f2fOnline.toFixed(2)}</td>
+            <td class=\"p-2 text-right mono editable\" data-field=\"nf2fImpl\" contenteditable=\"${editable}\">${r.nf2fImpl.toFixed(2)}</td>
+            <td class=\"p-2 text-right mono editable\" data-field=\"nf2fPrep\" contenteditable=\"${editable}\">${r.nf2fPrep.toFixed(2)}</td>
+            <td class=\"p-2 text-right mono\" data-field=\"totalH\">${r.totalH.toFixed(2)}</td>`; body.appendChild(tr);
         });
 
-        // Rebind a single listener each render
-        body.onblur = (e) => {
+        // --- Editable results behaviour ---
+        // Use focusout (bubbles) instead of blur (doesn't bubble) so delegation works.
+        if (renderResults._editHandler) body.removeEventListener('focusout', renderResults._editHandler, true);
+        renderResults._editHandler = (e)=>{
           const cell = e.target.closest('td.editable');
-          if (!cell) return;
+          if(!cell) return;
+          const step = parseFloat(el('rounding').value||'0.25');
           const tr = cell.closest('tr');
-          const idx = parseInt(tr.dataset.index, 10);
+          const idx = parseInt(tr.dataset.index,10);
           const field = cell.dataset.field;
-          const val = parseFloat((cell.innerText||'').replace(/[^0-9.+-]/g,'')) || 0;
-          const rounded = roundTo(val, step);
+          const val = parseFloat((cell.innerText||'').replace(/[^0-9.+-]/g,''));
+          const safe = isFinite(val) ? val : 0;
+          const rounded = Math.round((safe/step))*step;
           cell.innerText = rounded.toFixed(2);
           currentResults[idx][field] = rounded;
-          currentResults[idx].totalH = roundTo(currentResults[idx].f2fPhys + currentResults[idx].f2fOnline + currentResults[idx].nf2fImpl + currentResults[idx].nf2fPrep, step);
-          tr.querySelector('[data-field="totalH"]').innerText = currentResults[idx].totalH.toFixed(2);
+          currentResults[idx].totalH = Math.round(((currentResults[idx].f2fPhys + currentResults[idx].f2fOnline + currentResults[idx].nf2fImpl + currentResults[idx].nf2fPrep)/step))*step;
+          tr.querySelector('[data-field=\"totalH\"]').innerText = currentResults[idx].totalH.toFixed(2);
           refreshSums();
         };
+        body.addEventListener('focusout', renderResults._editHandler, true);
 
-        refreshSums();
-        resSec.classList.remove('hidden');
+        // Hitting Enter commits change and moves focus out
+        if (renderResults._enterHandler) body.removeEventListener('keydown', renderResults._enterHandler);
+        renderResults._enterHandler = (e)=>{
+          if(e.key === 'Enter' && e.target.closest('td.editable')){ e.preventDefault(); e.target.blur(); }
+        };
+        body.addEventListener('keydown', renderResults._enterHandler);
+
+        refreshSums(); resSec.classList.remove('hidden');
       }
 
       function refreshSums(){
-        let sumF2FPhys=0, sumF2FOnline=0, sumNF2FImpl=0, sumNF2FPrep=0, sumTotal=0;
-        currentResults.forEach(r => { sumF2FPhys+=r.f2fPhys; sumF2FOnline+=r.f2fOnline; sumNF2FImpl+=r.nf2fImpl; sumNF2FPrep+=r.nf2fPrep; sumTotal+=r.totalH; });
-        document.getElementById('sumF2FPhys').textContent = sumF2FPhys.toFixed(2);
-        document.getElementById('sumF2FOnline').textContent = sumF2FOnline.toFixed(2);
-        document.getElementById('sumNF2FImpl').textContent = sumNF2FImpl.toFixed(2);
-        document.getElementById('sumNF2FPrep').textContent = sumNF2FPrep.toFixed(2);
-        document.getElementById('sumTotal').textContent = sumTotal.toFixed(2);
+        let a=0,b=0,c=0,d=0,t=0; currentResults.forEach(r=>{a+=r.f2fPhys;b+=r.f2fOnline;c+=r.nf2fImpl;d+=r.nf2fPrep;t+=r.totalH;});
+        el('sumF2FPhys').textContent=a.toFixed(2); el('sumF2FOnline').textContent=b.toFixed(2); el('sumNF2FImpl').textContent=c.toFixed(2); el('sumNF2FPrep').textContent=d.toFixed(2); el('sumTotal').textContent=t.toFixed(2);
       }
 
       function exportCsv(){
         const rows = document.querySelectorAll('#resultTable tr');
         const data = [...rows].map(tr => [...tr.querySelectorAll('th,td')].map(td => '"'+td.innerText.replace(/"/g,'""')+'"').join(','));
-        const blob = new Blob([data.join('
-')], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href = url; a.download = 'slt_results.csv'; a.click(); URL.revokeObjectURL(url);
+        const blob = new Blob([data.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='slt_results.csv'; a.click(); URL.revokeObjectURL(url);
       }
 
-      function escapeHtml(str){ return (str||'').replace(/[&<>\"]/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
-
-      function loadExample(){
-        tbody.innerHTML='';
-        addRow({ name:'Assessment 1', mark:20, type:'Penulisan', mode:'NF2F Asynchronous' });
-        addRow({ name:'Assessment 2', mark:15, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
-        addRow({ name:'Assessment 3', mark:25, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
-        addRow({ name:'Final Assessment', mark:40, type:'Ujian / Peperiksaan', mode:'F2F Physical' });
-        updateMarkSum();
+      // --- Self-tests (non-destructive) ---
+      function runSelfTests(){
+        const results = [];
+        try { results.push(['app exists', typeof window.app === 'object']); } catch(e) { results.push(['app exists', false, e.message]); }
+        results.push(['addRow is function', typeof addRow === 'function']);
+        // Test addRow increments rows
+        const tbody = el('tbody');
+        const before = tbody.children.length; addRow({ name:'_test_', mark:1, type:'Penulisan', mode:'NF2F Asynchronous' });
+        const after = tbody.children.length; results.push(['addRow increments rows', after === before + 1]);
+        // Load example and compute
+        loadExample();
+        el('rounding').value = '0.25';
+        el('targetHours').value = '36';
+        calculate();
+        const totalBefore = parseFloat((el('sumTotal').textContent||'0'));
+        // Simulate editing a cell in results
+        const bodyEl = document.getElementById('resultBody');
+        const cell = bodyEl.querySelector('td[data-field="nf2fImpl"]');
+        const v = parseFloat(cell.innerText)||0; cell.innerText = (v + 0.50).toFixed(2);
+        cell.dispatchEvent(new FocusEvent('focusout', {bubbles:true}));
+        const totalAfter = parseFloat((el('sumTotal').textContent||'0'));
+        results.push(['editing updates totals', totalAfter !== totalBefore]);
+        console.table(results);
+        alert('Self-tests completed. See console for details.');
       }
 
-      window.addEventListener('DOMContentLoaded', init);
+      // boot: ensure at least one row exists
+      function boot(){ addRow(); }
+      if (document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', boot); } else { boot(); }
+
+      // public API
+      return { addRow, loadExample, calculate, normalizeToTarget, exportCsv, updateMarkSum, runSelfTests };
     })();
   </script>
 </body>
