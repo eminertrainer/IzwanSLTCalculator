@@ -131,253 +131,246 @@
   </div>
 
   <script>
-    const TYPES = [
-      "Penulisan",
-      "Penyelesaian Masalah",
-      "Pembentangan",
-      "Produk",
-      "Ujian / Peperiksaan",
-    ];
-    const MODES = [
-      "NF2F Asynchronous",
-      "F2F Physical",
-      "F2F Online Sync",
-    ];
+    (function(){
+      const TYPES = [
+        "Penulisan",
+        "Penyelesaian Masalah",
+        "Pembentangan",
+        "Produk",
+        "Ujian / Peperiksaan",
+      ];
+      const MODES = [
+        "NF2F Asynchronous",
+        "F2F Physical",
+        "F2F Online Sync",
+      ];
 
-    const RULES = {
-      "Penulisan": { hpp: 0.6, prep: 0.70, exec: 0.30, execToF2F: false },
-      "Penyelesaian Masalah": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
-      "Pembentangan": { hpp: 0.10, prep: 0.75, exec: 0.25, execToF2F: true },
-      "Produk": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
-      "Ujian / Peperiksaan": { hpp: 0.3375, prep: 0.815, exec: 0.185, execToF2F: true, implPerPercent: 0.0625, prepPerPercent: 0.275 }
-    };
+      const RULES = {
+        "Penulisan": { hpp: 0.6, prep: 0.70, exec: 0.30, execToF2F: false },
+        "Penyelesaian Masalah": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
+        "Pembentangan": { hpp: 0.10, prep: 0.75, exec: 0.25, execToF2F: true },
+        "Produk": { hpp: 0.725, prep: 0.30, exec: 0.70, execToF2F: true },
+        "Ujian / Peperiksaan": { hpp: 0.3375, prep: 0.815, exec: 0.185, execToF2F: true, implPerPercent: 0.0625, prepPerPercent: 0.275 }
+      };
 
-    const tbody = document.getElementById('tbody');
-    const addRowBtn = document.getElementById('addRow');
-    const loadExampleBtn = document.getElementById('loadExample');
-    const calculateBtn = document.getElementById('calculate');
-    const normalizeBtn = document.getElementById('normalize');
-    const exportCsvBtn = document.getElementById('exportCsv');
+      let tbody, addRowBtn, loadExampleBtn, calculateBtn, normalizeBtn, exportCsvBtn,
+          targetHoursEl, roundingEl, lockExamEl, editableEl, sumMarksEl;
 
-    const targetHoursEl = document.getElementById('targetHours');
-    const roundingEl = document.getElementById('rounding');
-    const lockExamEl = document.getElementById('lockExam');
-    const editableEl = document.getElementById('toggleEditable');
-    const sumMarksEl = document.getElementById('sumMarks');
+      let currentResults = [];
 
-    let currentResults = []; // store latest computed/edited rows
+      function init(){
+        tbody = document.getElementById('tbody');
+        addRowBtn = document.getElementById('addRow');
+        loadExampleBtn = document.getElementById('loadExample');
+        calculateBtn = document.getElementById('calculate');
+        normalizeBtn = document.getElementById('normalize');
+        exportCsvBtn = document.getElementById('exportCsv');
+        targetHoursEl = document.getElementById('targetHours');
+        roundingEl = document.getElementById('rounding');
+        lockExamEl = document.getElementById('lockExam');
+        editableEl = document.getElementById('toggleEditable');
+        sumMarksEl = document.getElementById('sumMarks');
 
-    function addRow(values = {}) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="p-2"><input class="w-full border rounded-lg p-1" placeholder="e.g., Assignment 1" value="${values.name||''}"></td>
-        <td class="p-2"><input class="w-28 border rounded-lg p-1 text-right" type="number" step="0.01" min="0" max="100" value="${values.mark??''}"></td>
-        <td class="p-2">${typeSelect(values.type)}</td>
-        <td class="p-2">${modeSelect(values.mode)}</td>
-        <td class="p-2 text-right"><button class="text-red-600 hover:underline" onclick="this.closest('tr').remove();updateMarkSum();">Remove</button></td>`;
-      tbody.appendChild(tr);
-      updateMarkSum();
-    }
+        if(!tbody){ console.error('tbody not found'); return; }
 
-    function typeSelect(val) {
-      return `<select class="w-56 border rounded-lg p-1">${TYPES.map(t=>`<option ${val===t? 'selected':''}>${t}</option>`).join('')}</select>`;
-    }
-    function modeSelect(val) {
-      return `<select class="w-48 border rounded-lg p-1">${MODES.map(m=>`<option ${val===m? 'selected':''}>${m}</option>`).join('')}</select>`;
-    }
+        // Button handlers with null checks to avoid early errors
+        addRowBtn && addRowBtn.addEventListener('click', () => addRow());
+        loadExampleBtn && loadExampleBtn.addEventListener('click', loadExample);
+        calculateBtn && calculateBtn.addEventListener('click', calculate);
+        normalizeBtn && normalizeBtn.addEventListener('click', normalizeToTarget);
+        exportCsvBtn && exportCsvBtn.addEventListener('click', exportCsv);
+        editableEl && editableEl.addEventListener('change', () => renderResults());
 
-    function getRows() {
-      const rows = [];
-      [...tbody.querySelectorAll('tr')].forEach(tr => {
-        const [nameEl, markEl, typeEl, modeEl] = tr.querySelectorAll('input, select');
-        rows.push({ name: nameEl.value.trim(), mark: parseFloat(markEl.value||'0')||0, type: typeEl.value, mode: modeEl.value });
-      });
-      return rows;
-    }
+        // Event delegation for Remove buttons (no inline onclick)
+        tbody.addEventListener('click', (e)=>{
+          const btn = e.target.closest('[data-action="remove-row"]');
+          if(btn){ btn.closest('tr')?.remove(); updateMarkSum(); }
+        });
 
-    function roundTo(x, step) { return Math.round((x/step)) * step; }
-
-    function updateMarkSum() {
-      const total = getRows().reduce((s,r)=>s+(r.mark||0),0);
-      sumMarksEl.textContent = `Total marks: ${total.toFixed(2)}%`;
-      sumMarksEl.className = `ml-auto text-sm ${Math.abs(total-100)<1e-6? 'text-emerald-600':'text-rose-600'}`;
-    }
-
-    function computeFromRules() {
-      const rows = getRows();
-      const step = parseFloat(roundingEl.value);
-
-      let results = rows.map(r => {
-        const rule = RULES[r.type];
-        let f2fPhys=0, f2fOnline=0, nf2fImpl=0, nf2fPrep=0;
-        if (r.type === 'Ujian / Peperiksaan') {
-          const impl = (rule.implPerPercent||rule.hpp*rule.exec) * r.mark; // 0.0625h/%
-          const prep = (rule.prepPerPercent||rule.hpp*rule.prep) * r.mark;  // 0.275h/%
-          if (r.mode === 'F2F Online Sync') f2fOnline = impl; else f2fPhys = impl;
-          nf2fPrep = prep;
-        } else {
-          const total = rule.hpp * r.mark;
-          const exec = total * rule.exec;
-          const prep = total * rule.prep;
-          if (r.mode === 'NF2F Asynchronous') nf2fImpl = exec;
-          else if (r.mode === 'F2F Physical') f2fPhys = exec;
-          else if (r.mode === 'F2F Online Sync') f2fOnline = exec;
-          nf2fPrep = prep;
-        }
-        const totalH = f2fPhys+f2fOnline+nf2fImpl+nf2fPrep;
-        return { ...r, f2fPhys: roundTo(f2fPhys, step), f2fOnline: roundTo(f2fOnline, step), nf2fImpl: roundTo(nf2fImpl, step), nf2fPrep: roundTo(nf2fPrep, step), totalH: roundTo(totalH, step) };
-      });
-      return results;
-    }
-
-    function calculate() {
-      const target = parseFloat(targetHoursEl.value||'0')||0;
-      const lockExam = lockExamEl.checked;
-      const step = parseFloat(roundingEl.value);
-      let results = computeFromRules();
-
-      const sumRaw = results.reduce((s,r)=>s+r.totalH,0);
-      const sumExam = results.filter(r=>r.type==='Ujian / Peperiksaan').reduce((s,r)=>s+r.totalH,0);
-      let scale = 1;
-      if (target>0) {
-        if (lockExam) {
-          const sumNon = sumRaw - sumExam;
-          scale = sumNon>0 ? (target - sumExam)/sumNon : 1;
-        } else {
-          scale = sumRaw>0 ? target/sumRaw : 1;
-        }
+        // Start with one blank row
+        addRow();
       }
-      results = results.map(r => {
-        const fac = (lockExam && r.type==='Ujian / Peperiksaan') ? 1 : scale;
-        const row = {
-          ...r,
-          f2fPhys: roundTo(r.f2fPhys*fac, step),
-          f2fOnline: roundTo(r.f2fOnline*fac, step),
-          nf2fImpl: roundTo(r.nf2fImpl*fac, step),
-          nf2fPrep: roundTo(r.nf2fPrep*fac, step),
-        };
-        row.totalH = roundTo(row.f2fPhys + row.f2fOnline + row.nf2fImpl + row.nf2fPrep, step);
-        return row;
-      });
 
-      currentResults = results;
-      renderResults();
-    }
-
-    function normalizeToTarget() {
-      if (!currentResults.length) return;
-      const target = parseFloat(targetHoursEl.value||'0')||0;
-      const lockExam = lockExamEl.checked;
-      const step = parseFloat(roundingEl.value);
-
-      const sumTotal = currentResults.reduce((s,r)=>s+r.totalH,0);
-      const sumExam = currentResults.filter(r=>r.type==='Ujian / Peperiksaan').reduce((s,r)=>s+r.totalH,0);
-      let scale = 1;
-      if (target>0) {
-        if (lockExam) {
-          const sumNon = sumTotal - sumExam;
-          scale = sumNon>0 ? (target - sumExam)/sumNon : 1;
-        } else {
-          scale = sumTotal>0 ? target/sumTotal : 1;
-        }
-      }
-      currentResults = currentResults.map(r => {
-        const fac = (lockExam && r.type==='Ujian / Peperiksaan') ? 1 : scale;
-        const row = {
-          ...r,
-          f2fPhys: roundTo(r.f2fPhys*fac, step),
-          f2fOnline: roundTo(r.f2fOnline*fac, step),
-          nf2fImpl: roundTo(r.nf2fImpl*fac, step),
-          nf2fPrep: roundTo(r.nf2fPrep*fac, step),
-        };
-        row.totalH = roundTo(row.f2fPhys + row.f2fOnline + row.nf2fImpl + row.nf2fPrep, step);
-        return row;
-      });
-      renderResults();
-    }
-
-    function renderResults() {
-      const resSec = document.getElementById('results');
-      const body = document.getElementById('resultBody');
-      const editable = editableEl.checked;
-      const step = parseFloat(roundingEl.value);
-
-      body.innerHTML = '';
-      currentResults.forEach((r, idx) => {
+      function addRow(values = {}){
         const tr = document.createElement('tr');
-        tr.dataset.index = idx;
         tr.innerHTML = `
-          <td class="p-2">${escapeHtml(r.name)}</td>
-          <td class="p-2 text-right mono">${(r.mark||0).toFixed(2)}</td>
-          <td class="p-2">${r.type}</td>
-          <td class="p-2">${r.mode}</td>
-          <td class="p-2 text-right mono editable" data-field="f2fPhys" contenteditable="${editable}">${r.f2fPhys.toFixed(2)}</td>
-          <td class="p-2 text-right mono editable" data-field="f2fOnline" contenteditable="${editable}">${r.f2fOnline.toFixed(2)}</td>
-          <td class="p-2 text-right mono editable" data-field="nf2fImpl" contenteditable="${editable}">${r.nf2fImpl.toFixed(2)}</td>
-          <td class="p-2 text-right mono editable" data-field="nf2fPrep" contenteditable="${editable}">${r.nf2fPrep.toFixed(2)}</td>
-          <td class="p-2 text-right mono" data-field="totalH">${r.totalH.toFixed(2)}</td>`;
-        body.appendChild(tr);
-      });
+          <td class="p-2"><input class="w-full border rounded-lg p-1" placeholder="e.g., Assignment 1" value="${values.name||''}"></td>
+          <td class="p-2"><input class="w-28 border rounded-lg p-1 text-right" type="number" step="0.01" min="0" max="100" value="${values.mark??''}"></td>
+          <td class="p-2">${typeSelect(values.type)}</td>
+          <td class="p-2">${modeSelect(values.mode)}</td>
+          <td class="p-2 text-right"><button type="button" data-action="remove-row" class="text-red-600 hover:underline">Remove</button></td>`;
+        tbody.appendChild(tr);
+        updateMarkSum();
+      }
 
-      // Event delegation for editing cells
-      body.addEventListener('blur', (e) => {
-        const cell = e.target.closest('td.editable');
-        if (!cell) return;
-        const tr = cell.closest('tr');
-        const idx = parseInt(tr.dataset.index, 10);
-        const field = cell.dataset.field;
-        const val = parseFloat((cell.innerText||'').replace(/[^0-9.+-]/g,'')) || 0;
-        const rounded = roundTo(val, step);
-        cell.innerText = rounded.toFixed(2);
-        currentResults[idx][field] = rounded;
-        currentResults[idx].totalH = roundTo(currentResults[idx].f2fPhys + currentResults[idx].f2fOnline + currentResults[idx].nf2fImpl + currentResults[idx].nf2fPrep, step);
-        // update row total cell
-        tr.querySelector('[data-field="totalH"]').innerText = currentResults[idx].totalH.toFixed(2);
+      function typeSelect(val){
+        return `<select class="w-56 border rounded-lg p-1">${TYPES.map(t=>`<option ${val===t? 'selected':''}>${t}</option>`).join('')}</select>`;
+      }
+      function modeSelect(val){
+        return `<select class="w-48 border rounded-lg p-1">${MODES.map(m=>`<option ${val===m? 'selected':''}>${m}</option>`).join('')}</select>`;
+      }
+
+      function getRows(){
+        const rows = [];
+        [...tbody.querySelectorAll('tr')].forEach(tr => {
+          const [nameEl, markEl, typeEl, modeEl] = tr.querySelectorAll('input, select');
+          rows.push({ name: (nameEl?.value||'').trim(), mark: parseFloat(markEl?.value||'0')||0, type: typeEl?.value||TYPES[0], mode: modeEl?.value||MODES[0] });
+        });
+        return rows;
+      }
+
+      function roundTo(x, step){ return Math.round((x/step)) * step; }
+
+      function updateMarkSum(){
+        const total = getRows().reduce((s,r)=>s+(r.mark||0),0);
+        sumMarksEl.textContent = `Total marks: ${total.toFixed(2)}%`;
+        sumMarksEl.className = `ml-auto text-sm ${Math.abs(total-100)<1e-6? 'text-emerald-600':'text-rose-600'}`;
+      }
+
+      function computeFromRules(){
+        const rows = getRows();
+        const step = parseFloat(roundingEl.value||'0.25');
+        return rows.map(r => {
+          const rule = RULES[r.type];
+          let f2fPhys=0, f2fOnline=0, nf2fImpl=0, nf2fPrep=0;
+          if (r.type === 'Ujian / Peperiksaan'){
+            const impl = (rule.implPerPercent||rule.hpp*rule.exec) * r.mark;
+            const prep = (rule.prepPerPercent||rule.hpp*rule.prep) * r.mark;
+            if (r.mode === 'F2F Online Sync') f2fOnline = impl; else f2fPhys = impl;
+            nf2fPrep = prep;
+          } else {
+            const total = rule.hpp * r.mark;
+            const exec = total * rule.exec;
+            const prep = total * rule.prep;
+            if (r.mode === 'NF2F Asynchronous') nf2fImpl = exec; else if (r.mode === 'F2F Physical') f2fPhys = exec; else if (r.mode === 'F2F Online Sync') f2fOnline = exec;
+            nf2fPrep = prep;
+          }
+          const totalH = f2fPhys+f2fOnline+nf2fImpl+nf2fPrep;
+          return { ...r, f2fPhys: roundTo(f2fPhys, step), f2fOnline: roundTo(f2fOnline, step), nf2fImpl: roundTo(nf2fImpl, step), nf2fPrep: roundTo(nf2fPrep, step), totalH: roundTo(totalH, step) };
+        });
+      }
+
+      function calculate(){
+        const target = parseFloat(targetHoursEl.value||'0')||0;
+        const lockExam = !!(lockExamEl?.checked);
+        const step = parseFloat(roundingEl.value||'0.25');
+        let results = computeFromRules();
+
+        const sumRaw = results.reduce((s,r)=>s+r.totalH,0);
+        const sumExam = results.filter(r=>r.type==='Ujian / Peperiksaan').reduce((s,r)=>s+r.totalH,0);
+        let scale = 1;
+        if (target>0){
+          if (lockExam){ const sumNon = sumRaw - sumExam; scale = sumNon>0 ? (target - sumExam)/sumNon : 1; }
+          else { scale = sumRaw>0 ? target/sumRaw : 1; }
+        }
+        results = results.map(r => {
+          const fac = (lockExam && r.type==='Ujian / Peperiksaan') ? 1 : scale;
+          const row = { ...r,
+            f2fPhys: roundTo(r.f2fPhys*fac, step), f2fOnline: roundTo(r.f2fOnline*fac, step), nf2fImpl: roundTo(r.nf2fImpl*fac, step), nf2fPrep: roundTo(r.nf2fPrep*fac, step) };
+          row.totalH = roundTo(row.f2fPhys + row.f2fOnline + row.nf2fImpl + row.nf2fPrep, step);
+          return row;
+        });
+        currentResults = results;
+        renderResults();
+      }
+
+      function normalizeToTarget(){
+        if (!currentResults.length) return;
+        const target = parseFloat(targetHoursEl.value||'0')||0;
+        const lockExam = !!(lockExamEl?.checked);
+        const step = parseFloat(roundingEl.value||'0.25');
+        const sumTotal = currentResults.reduce((s,r)=>s+r.totalH,0);
+        const sumExam = currentResults.filter(r=>r.type==='Ujian / Peperiksaan').reduce((s,r)=>s+r.totalH,0);
+        let scale = 1;
+        if (target>0){
+          if (lockExam){ const sumNon = sumTotal - sumExam; scale = sumNon>0 ? (target - sumExam)/sumNon : 1; }
+          else { scale = sumTotal>0 ? target/sumTotal : 1; }
+        }
+        currentResults = currentResults.map(r => {
+          const fac = (lockExam && r.type==='Ujian / Peperiksaan') ? 1 : scale;
+          const row = { ...r,
+            f2fPhys: roundTo(r.f2fPhys*fac, step), f2fOnline: roundTo(r.f2fOnline*fac, step), nf2fImpl: roundTo(r.nf2fImpl*fac, step), nf2fPrep: roundTo(r.nf2fPrep*fac, step) };
+          row.totalH = roundTo(row.f2fPhys + row.f2fOnline + row.nf2fImpl + row.nf2fPrep, step);
+          return row;
+        });
+        renderResults();
+      }
+
+      function renderResults(){
+        const resSec = document.getElementById('results');
+        const body = document.getElementById('resultBody');
+        const editable = !!(editableEl?.checked);
+        const step = parseFloat(roundingEl.value||'0.25');
+
+        body.innerHTML = '';
+        currentResults.forEach((r, idx) => {
+          const tr = document.createElement('tr');
+          tr.dataset.index = idx;
+          tr.innerHTML = `
+            <td class="p-2">${escapeHtml(r.name)}</td>
+            <td class="p-2 text-right mono">${(r.mark||0).toFixed(2)}</td>
+            <td class="p-2">${r.type}</td>
+            <td class="p-2">${r.mode}</td>
+            <td class="p-2 text-right mono editable" data-field="f2fPhys" contenteditable="${editable}">${r.f2fPhys.toFixed(2)}</td>
+            <td class="p-2 text-right mono editable" data-field="f2fOnline" contenteditable="${editable}">${r.f2fOnline.toFixed(2)}</td>
+            <td class="p-2 text-right mono editable" data-field="nf2fImpl" contenteditable="${editable}">${r.nf2fImpl.toFixed(2)}</td>
+            <td class="p-2 text-right mono editable" data-field="nf2fPrep" contenteditable="${editable}">${r.nf2fPrep.toFixed(2)}</td>
+            <td class="p-2 text-right mono" data-field="totalH">${r.totalH.toFixed(2)}</td>`;
+          body.appendChild(tr);
+        });
+
+        // Rebind a single listener each render
+        body.onblur = (e) => {
+          const cell = e.target.closest('td.editable');
+          if (!cell) return;
+          const tr = cell.closest('tr');
+          const idx = parseInt(tr.dataset.index, 10);
+          const field = cell.dataset.field;
+          const val = parseFloat((cell.innerText||'').replace(/[^0-9.+-]/g,'')) || 0;
+          const rounded = roundTo(val, step);
+          cell.innerText = rounded.toFixed(2);
+          currentResults[idx][field] = rounded;
+          currentResults[idx].totalH = roundTo(currentResults[idx].f2fPhys + currentResults[idx].f2fOnline + currentResults[idx].nf2fImpl + currentResults[idx].nf2fPrep, step);
+          tr.querySelector('[data-field="totalH"]').innerText = currentResults[idx].totalH.toFixed(2);
+          refreshSums();
+        };
+
         refreshSums();
-      }, true);
+        resSec.classList.remove('hidden');
+      }
 
-      refreshSums();
-      resSec.classList.remove('hidden');
-    }
+      function refreshSums(){
+        let sumF2FPhys=0, sumF2FOnline=0, sumNF2FImpl=0, sumNF2FPrep=0, sumTotal=0;
+        currentResults.forEach(r => { sumF2FPhys+=r.f2fPhys; sumF2FOnline+=r.f2fOnline; sumNF2FImpl+=r.nf2fImpl; sumNF2FPrep+=r.nf2fPrep; sumTotal+=r.totalH; });
+        document.getElementById('sumF2FPhys').textContent = sumF2FPhys.toFixed(2);
+        document.getElementById('sumF2FOnline').textContent = sumF2FOnline.toFixed(2);
+        document.getElementById('sumNF2FImpl').textContent = sumNF2FImpl.toFixed(2);
+        document.getElementById('sumNF2FPrep').textContent = sumNF2FPrep.toFixed(2);
+        document.getElementById('sumTotal').textContent = sumTotal.toFixed(2);
+      }
 
-    function refreshSums() {
-      let sumF2FPhys=0, sumF2FOnline=0, sumNF2FImpl=0, sumNF2FPrep=0, sumTotal=0;
-      currentResults.forEach(r => { sumF2FPhys+=r.f2fPhys; sumF2FOnline+=r.f2fOnline; sumNF2FImpl+=r.nf2fImpl; sumNF2FPrep+=r.nf2fPrep; sumTotal+=r.totalH; });
-      document.getElementById('sumF2FPhys').textContent = sumF2FPhys.toFixed(2);
-      document.getElementById('sumF2FOnline').textContent = sumF2FOnline.toFixed(2);
-      document.getElementById('sumNF2FImpl').textContent = sumNF2FImpl.toFixed(2);
-      document.getElementById('sumNF2FPrep').textContent = sumNF2FPrep.toFixed(2);
-      document.getElementById('sumTotal').textContent = sumTotal.toFixed(2);
-    }
-
-    function exportCsv() {
-      const rows = document.querySelectorAll('#resultTable tr');
-      const data = [...rows].map(tr => [...tr.querySelectorAll('th,td')].map(td => '"'+td.innerText.replace(/"/g,'""')+'"').join(','));
-      const blob = new Blob([data.join('
+      function exportCsv(){
+        const rows = document.querySelectorAll('#resultTable tr');
+        const data = [...rows].map(tr => [...tr.querySelectorAll('th,td')].map(td => '"'+td.innerText.replace(/"/g,'""')+'"').join(','));
+        const blob = new Blob([data.join('
 ')], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'slt_results.csv'; a.click(); URL.revokeObjectURL(url);
-    }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'slt_results.csv'; a.click(); URL.revokeObjectURL(url);
+      }
 
-    function escapeHtml(str){ return (str||'').replace(/[&<>\"]/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
+      function escapeHtml(str){ return (str||'').replace(/[&<>\"]/g, s=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[s])); }
 
-    // Handlers
-    addRowBtn.addEventListener('click', () => addRow());
-    loadExampleBtn.addEventListener('click', () => {
-      tbody.innerHTML='';
-      addRow({ name:'Assessment 1', mark:20, type:'Penulisan', mode:'NF2F Asynchronous' });
-      addRow({ name:'Assessment 2', mark:15, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
-      addRow({ name:'Assessment 3', mark:25, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
-      addRow({ name:'Final Assessment', mark:40, type:'Ujian / Peperiksaan', mode:'F2F Physical' });
-      updateMarkSum();
-    });
-    calculateBtn.addEventListener('click', calculate);
-    normalizeBtn.addEventListener('click', normalizeToTarget);
-    exportCsvBtn.addEventListener('click', exportCsv);
-    editableEl.addEventListener('change', () => renderResults());
+      function loadExample(){
+        tbody.innerHTML='';
+        addRow({ name:'Assessment 1', mark:20, type:'Penulisan', mode:'NF2F Asynchronous' });
+        addRow({ name:'Assessment 2', mark:15, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
+        addRow({ name:'Assessment 3', mark:25, type:'Penyelesaian Masalah', mode:'NF2F Asynchronous' });
+        addRow({ name:'Final Assessment', mark:40, type:'Ujian / Peperiksaan', mode:'F2F Physical' });
+        updateMarkSum();
+      }
 
-    // start with one blank row
-    addRow();
+      window.addEventListener('DOMContentLoaded', init);
+    })();
   </script>
 </body>
 </html>
